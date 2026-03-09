@@ -24,6 +24,7 @@ app.use('/api/staff',    require('./routes/staff'));
 app.use('/api/levies',   require('./routes/levies'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/audit',    require('./routes/audit'));
+app.use('/api/setup',    require('./routes/setup'));
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
