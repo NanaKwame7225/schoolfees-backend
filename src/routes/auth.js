@@ -98,4 +98,11 @@ router.delete('/users/:username', requireAuth, requireMaster, async (req, res) =
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// TEMP TEST — remove after fixing
+router.get('/test-password', async (req, res) => {
+  const bcrypt = require('bcryptjs');
+  const hash = '$2a$10$n/XhPkKR1W6kYhk4ltoLFOUmgxXlPP1IiMQ8v4IbBkMLD6yCNnwZy';
+  const result = await bcrypt.compare('SCHOOL2025', hash);
+  res.json({ match: result, hash });
+});
 module.exports = router;
