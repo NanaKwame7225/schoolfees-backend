@@ -2,26 +2,44 @@ const router = require('express').Router();
 const https  = require('https');
 const { requireAuth } = require('../middleware/auth');
 
-function bmsRequest(apiKey, to, msg, senderId) {
+function mnotifyPost(apiKey, recipients, message, sender) {
   return new Promise(function(resolve, reject) {
-    var num = String(to).replace(/[^0-9]/g, '');
-    if (num.charAt(0) === '0') num = '233' + num.slice(1);
-    if (num.slice(0, 3) !== '233') num = '233' + num;
-    
-    var path = '/api/sms/send?key=' + apiKey + '&to=' + num + '&msg=' + encodeURIComponent(msg) + '&sender_id=' + (senderId || 'NMS') + '&schedule=0';
-    var options = { hostname: 'app.bms.africa', path: path, method: 'GET' };
-    
+    var body = JSON.stringify({
+      recipient: recipients,
+      sender: sender || 'NMS',
+      message: message,
+      is_schedule: false,
+      schedule_date: ''
+    });
+    var options = {
+      hostname: 'api.mnotify.com',
+      path: '/api/sms/quick?key=' + apiKey,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
     var req = https.request(options, function(res) {
       var data = '';
       res.on('data', function(chunk) { data += chunk; });
-      res.on('end', function() { 
+      res.on('end', function() {
         console.log('BMS response:', data);
-        resolve(data.trim()); 
+        try { resolve(JSON.parse(data)); }
+        catch(e) { resolve({ status: 'error', raw: data }); }
       });
     });
     req.on('error', reject);
+    req.write(body);
     req.end();
   });
+}
+
+function formatNum(num) {
+  num = String(num).replace(/[^0-9]/g, '');
+  if (num.charAt(0) === '0') num = '233' + num.slice(1);
+  if (num.slice(0, 3) !== '233') num = '233' + num;
+  return num;
 }
 
 router.post('/send', requireAuth, function(req, res) {
@@ -30,10 +48,10 @@ router.post('/send', requireAuth, function(req, res) {
   var apiKey = req.body.apiKey;
   var senderId = req.body.senderId;
   if (!to || !message || !apiKey) return res.status(400).json({ error: 'to, message and apiKey required' });
-  bmsRequest(apiKey, to, message, senderId)
-    .then(function(code) { 
-      var success = code === '1000' || code.includes('"status":"success"');
-      res.json({ success: success, code: code }); 
+  mnotifyPost(apiKey, [formatNum(to)], message, senderId)
+    .then(function(result) {
+      var success = result.status === 'success' || result.code === '2000';
+      res.json({ success: success, code: result.code, result: result });
     })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
@@ -44,20 +62,14 @@ router.post('/bulk', requireAuth, function(req, res) {
   var apiKey = req.body.apiKey;
   var senderId = req.body.senderId;
   if (!recipients || !message || !apiKey) return res.status(400).json({ error: 'recipients, message and apiKey required' });
-  var sent = 0;
-  var failed = 0;
-  var chain = Promise.resolve();
-  recipients.forEach(function(r) {
-    chain = chain.then(function() {
-      return bmsRequest(apiKey, r.to, r.message || message, senderId)
-        .then(function(code) { 
-          if (code === '1000' || code.includes('"status":"success"')) sent++; 
-          else failed++; 
-        })
-        .catch(function() { failed++; });
-    });
-  });
-  chain.then(function() { res.json({ sent: sent, failed: failed }); })
+  var numbers = recipients.map(function(r) { return formatNum(r.to); });
+  mnotifyPost(apiKey, numbers, message, senderId)
+    .then(function(result) {
+      var success = result.status === 'success' || result.code === '2000';
+      var sent = success ? numbers.length : 0;
+      var failed = success ? 0 : numbers.length;
+      res.json({ sent: sent, failed: failed, result: result });
+    })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
