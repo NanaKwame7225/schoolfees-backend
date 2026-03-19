@@ -1,18 +1,23 @@
 const router = require('express').Router();
-const https = require('https');
+const https  = require('https');
 const { requireAuth } = require('../middleware/auth');
 
-function mnotifyRequest(apiKey, to, msg, senderId) {
+function bmsRequest(apiKey, to, msg, senderId) {
   return new Promise(function(resolve, reject) {
     var num = String(to).replace(/[^0-9]/g, '');
     if (num.charAt(0) === '0') num = '233' + num.slice(1);
     if (num.slice(0, 3) !== '233') num = '233' + num;
-    var path = '/smsapi?key=' + apiKey + '&to=' + num + '&msg=' + encodeURIComponent(msg) + '&sender_id=' + (senderId || 'BMS');
-    var options = { hostname: 'apps.mnotify.net', path: path, method: 'GET' };
+    
+    var path = '/api/sms/send?key=' + apiKey + '&to=' + num + '&msg=' + encodeURIComponent(msg) + '&sender_id=' + (senderId || 'NMS') + '&schedule=0';
+    var options = { hostname: 'app.bms.africa', path: path, method: 'GET' };
+    
     var req = https.request(options, function(res) {
       var data = '';
       res.on('data', function(chunk) { data += chunk; });
-      res.on('end', function() { resolve(data.trim()); });
+      res.on('end', function() { 
+        console.log('BMS response:', data);
+        resolve(data.trim()); 
+      });
     });
     req.on('error', reject);
     req.end();
@@ -25,8 +30,11 @@ router.post('/send', requireAuth, function(req, res) {
   var apiKey = req.body.apiKey;
   var senderId = req.body.senderId;
   if (!to || !message || !apiKey) return res.status(400).json({ error: 'to, message and apiKey required' });
-  mnotifyRequest(apiKey, to, message, senderId)
-    .then(function(code) { res.json({ success: code === '1000', code: code }); })
+  bmsRequest(apiKey, to, message, senderId)
+    .then(function(code) { 
+      var success = code === '1000' || code.includes('"status":"success"');
+      res.json({ success: success, code: code }); 
+    })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
@@ -41,8 +49,11 @@ router.post('/bulk', requireAuth, function(req, res) {
   var chain = Promise.resolve();
   recipients.forEach(function(r) {
     chain = chain.then(function() {
-      return mnotifyRequest(apiKey, r.to, r.message || message, senderId)
-        .then(function(code) { if (code === '1000') sent++; else failed++; })
+      return bmsRequest(apiKey, r.to, r.message || message, senderId)
+        .then(function(code) { 
+          if (code === '1000' || code.includes('"status":"success"')) sent++; 
+          else failed++; 
+        })
         .catch(function() { failed++; });
     });
   });
